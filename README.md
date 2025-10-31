@@ -1,0 +1,1 @@
+# MS-Dynamics-CRM-SQL-Plugin-Diagnosis
