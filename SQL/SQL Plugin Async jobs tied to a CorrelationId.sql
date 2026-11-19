@@ -1,14 +1,30 @@
 -- SPDX-License-Identifier: MIT
--- Async jobs by CorrelationId (Dataverse asyncoperation)
--- Use in SQL 4 CDS / SSMS. Read-only. Params: @CorrelationId, @NameLike.
+-- SQL 4 CDS | Check status, retries and errors for system jobs with the same CorrelationId.
+-- A job can be absent if it has already been deleted or has a different CorrelationId.
 
-DECLARE @CorrelationId UNIQUEIDENTIFIER = 'PUT-YOUR-CID';
-DECLARE @NameLike NVARCHAR(200) = N'XYZ.%';
+DECLARE @CorrelationId UNIQUEIDENTIFIER = NULL; -- Replace NULL with a quoted GUID.
+DECLARE @Top INT = 50;
 
-SELECT TOP 50
-  a.asyncoperationid, a.createdon, a.name, a.messagename,
-  a.correlationid, a.regardingobjectid, a.regardingobjectidname
+IF @CorrelationId IS NULL
+    THROW 50000, 'Set @CorrelationId to a GUID from the trace log.', 1;
+
+SELECT TOP (@Top)
+    a.createdon,
+    a.asyncoperationid,
+    a.correlationid,
+    a.name,
+    a.messagename,
+    a.operationtypename,
+    a.statecodename,
+    a.statuscodename,
+    a.retrycount,
+    a.postponeuntil,
+    a.startedon,
+    a.completedon,
+    a.errorcode,
+    a.friendlymessage,
+    a.message,
+    a.regardingobjectid
 FROM asyncoperation AS a
 WHERE a.correlationid = @CorrelationId
-  AND a.name LIKE @NameLike
-ORDER BY a.createdon DESC;
+ORDER BY a.createdon DESC, a.asyncoperationid DESC;

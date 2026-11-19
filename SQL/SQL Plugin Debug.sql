@@ -1,54 +1,34 @@
 -- SPDX-License-Identifier: MIT
--- Plugin Trace Log ad‑hoc explorer (plugintracelog)
--- SQL 4 CDS / SSMS. Read-only. Params: @MinutesBack, @TypeLike, @Top, ...
+-- SQL 4 CDS | All available trace entries for one CorrelationId.
+-- Copy a GUID from Latest exceptions or Trace search. For async, check Async jobs too.
 
-DECLARE @MinutesBack INT = 10;
-DECLARE @NamespaceFilter NVARCHAR(128) = N'XYZ.';  -- Set to N'' to disable
-DECLARE @CorrelationId UNIQUEIDENTIFIER = '';
+DECLARE @CorrelationId UNIQUEIDENTIFIER = NULL; -- Replace NULL with a quoted GUID.
 
-DECLARE @StartUtc DATETIME = DATEADD(MINUTE, -@MinutesBack, GETUTCDATE());
-DECLARE @TypeLike NVARCHAR(140) =
-    CASE WHEN NULLIF(@NamespaceFilter, N'') IS NULL THEN N'%' ELSE @NamespaceFilter + N'%' END;
+IF @CorrelationId IS NULL
+    THROW 50000, 'Set @CorrelationId to a GUID from the trace log.', 1;
 
 SELECT
-    CONVERT(VARCHAR(23), p.createdon, 121) AS ts_utc,
     p.correlationid,
+    p.plugintracelogid,
+    p.requestid,
+    p.createdon,
+    p.performanceexecutionstarttime AS execution_started_on,
+    p.performanceexecutionduration AS execution_ms,
     p.depth,
     p.modename,
     p.messagename,
     p.primaryentity,
-    LEFT(p.typename, 160) AS typename,
-    LEFT(p.messageblock, 400) AS message_preview,
+    p.typename,
+    p.pluginstepid,
     CASE
-        WHEN LEN(LTRIM(RTRIM(ISNULL(p.exceptiondetails, '')))) > 0 THEN N'⚠️ ERR'
-        ELSE N''
-    END AS status
-FROM plugintracelog AS p
-WHERE p.createdon > @StartUtc
-  AND p.typename LIKE @TypeLike
-ORDER BY p.createdon DESC, p.plugintracelogid DESC;
-
--- Full execution chain for a specific CorrelationId
-SELECT
-    CONVERT(VARCHAR(23), p.createdon, 121) AS ts_utc,
-    p.depth,
-    p.modename,
-    p.messagename,
-    p.primaryentity,
-    LEFT(p.typename, 160) AS typename,
-    LEFT(p.messageblock, 2000) AS message
-FROM plugintracelog AS p
-WHERE p.correlationid = @CorrelationId
-  AND p.typename LIKE @TypeLike
-ORDER BY p.createdon, p.depth, p.plugintracelogid;
-
--- Additionally: only errors for the selected CorrelationId (ignoring empty/whitespace)
-SELECT
-    CONVERT(VARCHAR(23), p.createdon, 121) AS ts_utc,
-    LEFT(p.typename, 160) AS typename,
+        WHEN LEN(LTRIM(RTRIM(p.exceptiondetails))) > 0 THEN 'exceptiondetails'
+        WHEN CHARINDEX(N'inner exception:', LOWER(p.messageblock)) > 0
+          OR CHARINDEX(N'an error occurred', LOWER(p.messageblock)) > 0
+          OR CHARINDEX(N'an error occured', LOWER(p.messageblock)) > 0 THEN 'trace_error'
+    END AS error_source,
+    p.messageblock,
     p.exceptiondetails
 FROM plugintracelog AS p
 WHERE p.correlationid = @CorrelationId
-  AND p.exceptiondetails IS NOT NULL
-  AND LEN(LTRIM(RTRIM(p.exceptiondetails))) > 0
-ORDER BY p.createdon, p.plugintracelogid;
+ORDER BY COALESCE(p.performanceexecutionstarttime, p.createdon),
+         p.createdon, p.depth, p.plugintracelogid;

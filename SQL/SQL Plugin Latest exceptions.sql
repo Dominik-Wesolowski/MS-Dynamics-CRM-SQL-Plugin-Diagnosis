@@ -1,34 +1,54 @@
 -- SPDX-License-Identifier: MIT
--- Latest plugin exceptions (plugintracelog)
--- SQL 4 CDS / SSMS. Read-only. Params: @MinutesBack, @Top.
+-- SQL 4 CDS | Find recent platform exceptions and recognizable errors written to the trace.
+-- trace_error is inferred from messageblock. Copy correlationid into SQL Plugin Debug.sql.
 
-DECLARE @MinutesBack INT = 0;
-DECLARE @TypeLike NVARCHAR(200) = N'XYZ.%';
+-- Set a CorrelationId to bypass the time window, type filter and result cap.
+DECLARE @CorrelationId UNIQUEIDENTIFIER = NULL;
+DECLARE @MinutesBack INT = 60;
+DECLARE @TypeLike NVARCHAR(200) = N'%'; -- Enter a class or namespace prefix. A trailing % is added if needed.
 DECLARE @Top INT = 100;
+DECLARE @StartUtc DATETIME = DATEADD(MINUTE, -@MinutesBack, GETUTCDATE());
 
--- Default: always show top N results
-IF ISNULL(@Top, 0) <= 0
-    SET @Top = 100;
+DECLARE @ResultLimit INT = CASE WHEN @CorrelationId IS NULL THEN @Top ELSE 2147483647 END;
 
--- If MinutesBack > 0, calculate window start
-DECLARE @StartUtc DATETIME = NULL;
-IF ISNULL(@MinutesBack, 0) > 0
-    SET @StartUtc = DATEADD(MINUTE, -@MinutesBack, GETUTCDATE());
+DECLARE @TypePattern NVARCHAR(201) = CASE WHEN RIGHT(@TypeLike, 1) = N'%' THEN @TypeLike ELSE @TypeLike + N'%' END;
 
--- Main query
-SELECT TOP (@Top)
-    p.createdon,
-    p.correlationid,
-    p.messagename,
-    p.primaryentity,
-    p.depth,
-    LEFT(p.typename, 160) AS typename,
-    LEFT(p.exceptiondetails, 2000) AS exception_snippet
-FROM plugintracelog AS p
-WHERE p.typename LIKE @TypeLike
-  AND LEN(LTRIM(RTRIM(ISNULL(p.exceptiondetails, '')))) > 0
-  AND (
-        @StartUtc IS NULL        -- if MinutesBack = 0/null → show all
-        OR p.createdon > @StartUtc
-      )
-ORDER BY p.createdon DESC;
+SELECT TOP (@ResultLimit)
+    t.createdon,
+    t.correlationid,
+    t.plugintracelogid,
+    t.typename,
+    t.modename,
+    t.messagename,
+    t.primaryentity,
+    t.depth,
+    CASE WHEN t.has_exception = 1 THEN 'exceptiondetails' ELSE 'trace_error' END AS error_source,
+    CASE
+        WHEN t.has_exception = 1 THEN LEFT(t.exceptiondetails, 2000)
+        ELSE SUBSTRING(t.messageblock, t.trace_error_position, 500)
+    END AS error_snippet
+FROM (
+    SELECT
+        p.createdon,
+        p.correlationid,
+        p.plugintracelogid,
+        p.typename,
+        p.modename,
+        p.messagename,
+        p.primaryentity,
+        p.depth,
+        p.exceptiondetails,
+        p.messageblock,
+        CASE WHEN LEN(LTRIM(RTRIM(p.exceptiondetails))) > 0 THEN 1 ELSE 0 END AS has_exception,
+        COALESCE(
+            NULLIF(CHARINDEX(N'inner exception:', LOWER(p.messageblock)), 0),
+            NULLIF(CHARINDEX(N'an error occurred', LOWER(p.messageblock)), 0),
+            NULLIF(CHARINDEX(N'an error occured', LOWER(p.messageblock)), 0)
+        ) AS trace_error_position
+    FROM plugintracelog AS p
+    WHERE (@CorrelationId IS NOT NULL AND p.correlationid = @CorrelationId)
+       OR (@CorrelationId IS NULL AND p.createdon >= @StartUtc AND p.typename LIKE @TypePattern)
+) AS t
+WHERE t.has_exception = 1
+   OR t.trace_error_position IS NOT NULL
+ORDER BY t.createdon DESC, t.plugintracelogid DESC;
