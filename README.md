@@ -1,10 +1,10 @@
 # Dynamics 365 / Dataverse Plugin Diagnostics
 
-Five read-only queries for [SQL 4 CDS](https://github.com/MarkMpn/Sql4Cds) v9 or later in XrmToolBox, or SSMS with the SQL 4 CDS extension. Connect to the Dataverse environment you want to diagnose and run each file as a batch.
+Six read-only queries for [SQL 4 CDS](https://github.com/MarkMpn/Sql4Cds) v9 or later in XrmToolBox, or SSMS with the SQL 4 CDS extension. Connect to the Dataverse environment you want to diagnose and run each file as a batch.
 
 ## Diagnose an incident
 
-1. Open [Latest exceptions](SQL/SQL%20Plugin%20Latest%20exceptions.sql) to find a recent error. If you only have a record ID or text from a trace message, open [Trace search](SQL/SQL%20Plugin%20Trace%20search%20by%20substring%20%28messageblock%20LIKE%29.sql) and set `@Search`. The search treats wildcard characters literally and shows the text around the first match.
+1. Open [Latest traces](SQL/SQL%20Plugin%20Latest%20traces.sql) to browse recent stored messages, including normal completions and skipped work. Use [Latest exceptions](SQL/SQL%20Plugin%20Latest%20exceptions.sql) to find a recent error. If you only have a record ID or text from a trace message, open [Trace search](SQL/SQL%20Plugin%20Trace%20search%20by%20substring%20%28messageblock%20LIKE%29.sql) and set `@Search`. The search treats wildcard characters literally and shows the text around the first match.
 2. Copy the result's `correlationid` into [Debug](SQL/SQL%20Plugin%20Debug.sql). Replace `NULL` with the GUID in single quotes. The result shows all available trace entries for that correlation, their execution order and duration, and the stored trace and exception text.
 3. For asynchronous work, paste the same GUID into [Async jobs](SQL/SQL%20Plugin%20Async%20jobs%20tied%20to%20a%20CorrelationId.sql). Check the status, retry count, timestamps, and error details. Jobs that were deleted or use a different correlation ID will be absent.
 
